@@ -1,0 +1,467 @@
+
+import React, { useState, useMemo } from 'react';
+import { 
+  Plus, 
+  Search, 
+  Trash2, 
+  Calendar,
+  X,
+  Share2,
+  User as UserIcon,
+  FileText,
+  ChevronDown,
+  ShieldAlert,
+  Settings as SettingsIcon,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Filter,
+  FileEdit,
+  Notebook
+} from 'lucide-react';
+import { Subject, Student, AttendanceRecord, AttendanceStatus, CorrectionRecord, User, ClassSettings, LectureLog } from '../types';
+
+interface AttendanceSheetProps {
+  subject: Subject;
+  students: Student[];
+  attendance: AttendanceRecord[];
+  lectureLogs: LectureLog[];
+  onUpdateAttendance: (records: AttendanceRecord[], corrections?: CorrectionRecord[]) => void;
+  onUpdateLectureLogs: (logs: LectureLog[]) => void;
+  currentUser: User;
+  readOnly?: boolean;
+  settings: ClassSettings;
+  onUpdateSettings: (settings: ClassSettings) => void;
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const WEEKDAYS = [
+  { id: 0, label: 'Sunday', short: 'Sun' },
+  { id: 1, label: 'Monday', short: 'Mon' },
+  { id: 2, label: 'Tuesday', short: 'Tue' },
+  { id: 3, label: 'Wednesday', short: 'Wed' },
+  { id: 4, label: 'Thursday', short: 'Thu' },
+  { id: 5, label: 'Friday', short: 'Fri' },
+  { id: 6, label: 'Saturday', short: 'Sat' },
+];
+
+const AttendanceSheet: React.FC<AttendanceSheetProps> = ({ 
+  subject, students, attendance, lectureLogs, onUpdateAttendance, onUpdateLectureLogs, currentUser, readOnly = false, settings, onUpdateSettings
+}) => {
+  const [activeTab, setActiveTab] = useState<'REGISTER' | 'JOURNAL'>('REGISTER');
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const [showMarkModal, setShowMarkModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showCellEditModal, setShowCellEditModal] = useState(false);
+  
+  const [editingCell, setEditingCell] = useState<{student: Student, day: number} | null>(null);
+  const [rollInput, setRollInput] = useState('');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [deptFilter, setDeptFilter] = useState<'ALL' | 'AGRI' | 'ENG' | 'SOC'>('ALL');
+  
+  // Lecture Log State
+  const [logTopic, setLogTopic] = useState('');
+  const [logAssignment, setLogAssignment] = useState('');
+
+  const daysInMonth = useMemo(() => {
+    const lastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const activeDays = [];
+    for (let day = 1; day <= lastDay; day++) {
+      const date = new Date(currentYear, currentMonth, day);
+      if (!settings.excludedDays.includes(date.getDay())) {
+        activeDays.push(day);
+      }
+    }
+    return activeDays;
+  }, [currentMonth, currentYear, settings.excludedDays]);
+
+  const monthName = MONTHS[currentMonth];
+
+  const filteredStudents = useMemo(() => {
+    return students.filter(s => {
+      const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.rollNumber.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      let matchesDept = true;
+      if (deptFilter === 'ENG') matchesDept = s.rollNumber.startsWith('E-');
+      else if (deptFilter === 'SOC') matchesDept = s.rollNumber.startsWith('S-');
+      else if (deptFilter === 'AGRI') matchesDept = !s.rollNumber.startsWith('E-') && !s.rollNumber.startsWith('S-');
+      
+      return matchesSearch && matchesDept;
+    });
+  }, [students, searchTerm, deptFilter]);
+
+  const currentSubjectLogs = useMemo(() => {
+    return lectureLogs
+      .filter(log => log.subjectId === subject.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [lectureLogs, subject.id]);
+
+  const getRecord = (studentId: string, day: number): AttendanceRecord | undefined => {
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return attendance.find(a => a.studentId === studentId && a.subjectId === subject.id && a.date === dateStr);
+  };
+
+  const getStatus = (studentId: string, day: number): AttendanceStatus | '' => {
+    const record = getRecord(studentId, day);
+    return record ? record.status : '';
+  };
+
+  const calculateStats = (studentId: string) => {
+    const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+    const monthlyRecords = attendance.filter(a => 
+      a.studentId === studentId && a.subjectId === subject.id && a.date.startsWith(monthPrefix)
+    );
+    const present = monthlyRecords.filter(r => r.status === 'P').length;
+    const percentage = monthlyRecords.length > 0 ? Math.round((present / monthlyRecords.length) * 100) : 0;
+    return { present, percentage };
+  };
+
+  const handleQuickMark = () => {
+    if (readOnly) return;
+    const presentRolls = rollInput.split(/[\s,]+/).map(r => r.trim().toUpperCase()).filter(r => r !== '');
+    
+    const newRecords = [...attendance].filter(a => !(a.date === selectedDate && a.subjectId === subject.id));
+    students.forEach(student => {
+      newRecords.push({
+        id: crypto.randomUUID(),
+        studentId: student.id,
+        subjectId: subject.id,
+        date: selectedDate,
+        status: presentRolls.includes(student.rollNumber.toUpperCase()) ? 'P' : 'A'
+      });
+    });
+    onUpdateAttendance(newRecords);
+    setShowMarkModal(false);
+    setRollInput('');
+  };
+
+  const handleSaveLectureLog = () => {
+    if (readOnly || !logTopic.trim()) return;
+    const newLog: LectureLog = {
+      id: crypto.randomUUID(),
+      subjectId: subject.id,
+      date: selectedDate,
+      topic: logTopic,
+      assignment: logAssignment,
+      timestamp: new Date().toISOString()
+    };
+    const updatedLogs = [...lectureLogs.filter(l => !(l.subjectId === subject.id && l.date === selectedDate)), newLog];
+    onUpdateLectureLogs(updatedLogs);
+    setLogTopic('');
+    setLogAssignment('');
+    setShowLogModal(false);
+  };
+
+  const handleCellClick = (student: Student, day: number) => {
+    if (readOnly) return;
+    setEditingCell({ student, day });
+    setShowCellEditModal(true);
+  };
+
+  const applyCellCorrection = (status: AttendanceStatus) => {
+    if (readOnly || !editingCell) return;
+    const { student, day } = editingCell;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const updated = attendance.filter(a => !(a.studentId === student.id && a.date === dateStr && a.subjectId === subject.id));
+    updated.push({ id: crypto.randomUUID(), studentId: student.id, subjectId: subject.id, date: dateStr, status });
+    onUpdateAttendance(updated);
+    setShowCellEditModal(false);
+  };
+
+  const toggleExcludedDay = (dayId: number) => {
+    if (readOnly) return;
+    const newExcluded = settings.excludedDays.includes(dayId)
+      ? settings.excludedDays.filter(d => d !== dayId)
+      : [...settings.excludedDays, dayId];
+    onUpdateSettings({ ...settings, excludedDays: newExcluded });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-3xl p-8 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-slate-800 uppercase">Working Days</h3>
+              <button onClick={() => setShowSettingsModal(false)}><X /></button>
+            </div>
+            <div className="grid gap-2">
+              {WEEKDAYS.map((day) => {
+                const isExcluded = settings.excludedDays.includes(day.id);
+                return (
+                  <button
+                    key={day.id}
+                    onClick={() => toggleExcludedDay(day.id)}
+                    className={`flex items-center justify-between p-4 rounded-2xl border-2 ${isExcluded ? 'border-slate-100 bg-slate-50 text-slate-400' : 'border-indigo-100 bg-indigo-50 text-indigo-700 font-bold'}`}
+                  >
+                    <span>{day.label}</span>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${isExcluded ? 'bg-slate-200' : 'bg-indigo-600 text-white'}`}>
+                      {isExcluded ? <X size={12} /> : <Check size={12} />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={() => setShowSettingsModal(false)} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black">Save Schedule</button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Mark Modal */}
+      {showMarkModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-3xl p-8 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Quick Mark Attendance</h3>
+              <button onClick={() => setShowMarkModal(false)}><X /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase">Date</label>
+                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl border font-bold" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase">Present Roll Numbers</label>
+                <textarea 
+                  rows={4} 
+                  value={rollInput} 
+                  onChange={(e) => setRollInput(e.target.value)} 
+                  placeholder="e.g. 1 24 E-3 S-2" 
+                  className="w-full p-3 bg-slate-50 rounded-xl border focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm" 
+                />
+              </div>
+            </div>
+            <button onClick={handleQuickMark} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">Apply Attendance</button>
+          </div>
+        </div>
+      )}
+
+      {/* Session Log Modal */}
+      {showLogModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-3xl p-8 space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Academic Journal Log</h3>
+              <button onClick={() => setShowLogModal(false)}><X /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase">Date of Session</label>
+                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl border font-bold" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase">Lecture Topic/Subject Matter</label>
+                <input 
+                  type="text"
+                  value={logTopic}
+                  onChange={(e) => setLogTopic(e.target.value)}
+                  placeholder="e.g. Intro to Agronomy Principles"
+                  className="w-full p-3 bg-slate-50 rounded-xl border font-bold" 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase">Teacher Assignment/Task</label>
+                <textarea 
+                  rows={3}
+                  value={logAssignment}
+                  onChange={(e) => setLogAssignment(e.target.value)}
+                  placeholder="e.g. Review chapter 2 and prepare summary"
+                  className="w-full p-3 bg-slate-50 rounded-xl border font-medium text-sm" 
+                />
+              </div>
+            </div>
+            <button onClick={handleSaveLectureLog} className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black shadow-lg">Save Session Record</button>
+          </div>
+        </div>
+      )}
+
+      {/* Header Info */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border flex flex-col gap-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded ${subject.type === 'Practical' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{subject.type}</span>
+              <h2 className="text-2xl font-extrabold text-slate-800">{subject.name}</h2>
+            </div>
+            <p className="text-slate-500 flex items-center gap-2 font-medium"><Calendar size={16} /> {monthName} {currentYear}</p>
+          </div>
+          {!readOnly && (
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setShowLogModal(true)} className="flex items-center gap-2 bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-xl font-bold border border-emerald-100 hover:bg-emerald-100 transition-colors"><FileEdit size={18} /> Session Log</button>
+              <button onClick={() => setShowMarkModal(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 active:scale-95 transition-all"><Plus size={18} /> Quick Mark</button>
+              <button onClick={() => setShowSettingsModal(true)} className="p-2.5 bg-slate-50 text-slate-400 rounded-xl border hover:bg-slate-100"><SettingsIcon size={20} /></button>
+            </div>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center border-b pt-2">
+          <button 
+            onClick={() => setActiveTab('REGISTER')}
+            className={`px-6 py-3 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'REGISTER' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400'}`}
+          >
+            Attendance Grid
+          </button>
+          <button 
+            onClick={() => setActiveTab('JOURNAL')}
+            className={`px-6 py-3 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'JOURNAL' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400'}`}
+          >
+            Lecture Journal
+          </button>
+        </div>
+
+        {activeTab === 'REGISTER' && (
+          <div className="flex flex-col md:flex-row gap-4 items-center animate-in fade-in duration-300">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search by name or roll..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm font-medium"
+              />
+            </div>
+            <div className="flex items-center bg-slate-50 p-1 rounded-xl border w-full md:w-auto">
+              {['ALL', 'AGRI', 'ENG', 'SOC'].map(d => (
+                <button 
+                  key={d}
+                  onClick={() => setDeptFilter(d as any)}
+                  className={`flex-1 md:flex-none px-4 py-1.5 text-[10px] font-black uppercase rounded-lg transition-all ${deptFilter === d ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {activeTab === 'REGISTER' ? (
+        <>
+          <div className="bg-white border rounded-2xl overflow-hidden shadow-sm animate-in fade-in duration-300">
+            <div className="overflow-x-auto excel-scroll">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50">
+                    <th className="sticky-col border-b border-r px-4 py-3 text-left min-w-[200px] font-bold">Student Identity</th>
+                    {daysInMonth.map(day => (
+                      <th key={day} className="border-b border-r px-1 py-3 text-center min-w-[45px] text-[10px] font-bold text-slate-500">{day}</th>
+                    ))}
+                    <th className="border-b bg-indigo-50 px-4 py-3 text-center font-bold text-indigo-700 min-w-[60px] uppercase text-[10px]">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.map(student => {
+                    const stats = calculateStats(student.id);
+                    return (
+                      <tr key={student.id} className="hover:bg-slate-50 group">
+                        <td className="sticky-col border-r px-4 py-2 bg-white flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black border ${
+                            student.rollNumber.startsWith('E-') ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                            student.rollNumber.startsWith('S-') ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                            'bg-slate-50 text-slate-500 border-slate-100'
+                          }`}>
+                            {student.name.charAt(0)}
+                          </div>
+                          <div className="truncate">
+                            <p className="font-bold text-xs text-slate-800">{student.name}</p>
+                            <p className="text-[9px] font-black text-slate-400 uppercase">Roll: {student.rollNumber}</p>
+                          </div>
+                        </td>
+                        {daysInMonth.map(day => {
+                          const status = getStatus(student.id, day);
+                          return (
+                            <td key={day} className={`border-r p-0 text-center font-bold text-[10px] ${readOnly ? '' : 'cursor-pointer hover:bg-indigo-50/30'}`} onClick={() => handleCellClick(student, day)}>
+                              <div className={`p-2 ${
+                                status === 'P' ? 'text-emerald-600 bg-emerald-50/30' : 
+                                status === 'A' ? 'text-rose-600 bg-rose-50/30' : 
+                                status === 'L' ? 'text-amber-600 bg-amber-50/30' : 
+                                'text-slate-200'
+                              }`}>
+                                {status || '·'}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td className={`text-center font-black text-[10px] ${stats.percentage >= 75 ? 'text-emerald-600' : 'text-rose-600'} bg-slate-50/30`}>
+                          {stats.percentage}%
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-6 px-4 py-3 bg-white rounded-2xl border border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-emerald-500 rounded-sm"></div> Present (P)</div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-rose-500 rounded-sm"></div> Absent (A)</div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-amber-500 rounded-sm"></div> Leave (L)</div>
+          </div>
+        </>
+      ) : (
+        <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300">
+          {currentSubjectLogs.length === 0 ? (
+            <div className="py-20 bg-white rounded-3xl border border-dashed text-center">
+              <Notebook className="mx-auto text-slate-200 mb-4" size={48} />
+              <p className="text-slate-400 font-medium italic">No lecture journal entries for this class yet.</p>
+              {!readOnly && (
+                <button onClick={() => setShowLogModal(true)} className="mt-4 text-indigo-600 font-bold text-sm underline">Log your first session</button>
+              )}
+            </div>
+          ) : (
+            currentSubjectLogs.map(log => (
+              <div key={log.id} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row gap-6">
+                <div className="flex-shrink-0 text-center md:text-left md:w-32">
+                  <p className="text-2xl font-black text-indigo-600">{new Date(log.date).getDate()}</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase">{MONTHS[new Date(log.date).getMonth()].substring(0,3)} {new Date(log.date).getFullYear()}</p>
+                </div>
+                <div className="flex-1 space-y-4">
+                  <div>
+                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Lecture Topic</h4>
+                    <p className="text-lg font-bold text-slate-800">{log.topic}</p>
+                  </div>
+                  {log.assignment && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Teacher Assignment</h4>
+                      <p className="text-sm text-slate-600 font-medium leading-relaxed">{log.assignment}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Cell Edit Modal */}
+      {showCellEditModal && editingCell && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-xs rounded-3xl p-6 text-center space-y-4">
+            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto text-indigo-600 font-black text-xl mb-2">{editingCell.student.rollNumber}</div>
+            <h4 className="font-black text-slate-800 uppercase">{editingCell.student.name}</h4>
+            <div className="grid grid-cols-1 gap-2">
+              <button onClick={() => applyCellCorrection('P')} className="bg-emerald-500 text-white py-3 rounded-xl font-bold">Present (P)</button>
+              <button onClick={() => applyCellCorrection('A')} className="bg-rose-500 text-white py-3 rounded-xl font-bold">Absent (A)</button>
+              <button onClick={() => applyCellCorrection('L')} className="bg-amber-500 text-white py-3 rounded-xl font-bold">Leave (L)</button>
+            </div>
+            <button onClick={() => setShowCellEditModal(false)} className="text-slate-400 text-sm font-bold pt-2">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AttendanceSheet;

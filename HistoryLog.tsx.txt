@@ -1,0 +1,163 @@
+
+import React, { useState, useMemo } from 'react';
+/* Added Search to imports from lucide-react */
+import { History as HistoryIcon, Clock, User, FileText, Trash2, ArrowRight, Info, Search, X } from 'lucide-react';
+import { CorrectionRecord } from '../types';
+
+interface HistoryLogProps {
+  history: CorrectionRecord[];
+  onClear: () => void;
+}
+
+const HistoryLog: React.FC<HistoryLogProps> = ({ history, onClear }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const formatDate = (isoString: string) => {
+    return new Date(isoString).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const filteredHistory = useMemo(() => {
+    if (!searchTerm.trim()) return history;
+    const lowerSearch = searchTerm.toLowerCase();
+    return history.filter(record => 
+      record.studentName.toLowerCase().includes(lowerSearch) ||
+      record.subjectName.toLowerCase().includes(lowerSearch) ||
+      record.dateOfAttendance.includes(lowerSearch)
+    );
+  }, [history, searchTerm]);
+
+  const getStatusBadge = (status: string) => {
+    switch(status) {
+      case 'P': return <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-bold">P</span>;
+      case 'A': return <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold">A</span>;
+      case 'L': return <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-bold">L</span>;
+      default: return <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">{status}</span>;
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-300">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-slate-800 flex items-center gap-3">
+            <HistoryIcon className="text-indigo-600" size={32} />
+            Correction History
+          </h2>
+          <p className="text-slate-500">Audit log of all attendance modifications.</p>
+        </div>
+        {history.length > 0 && (
+          <button 
+            onClick={onClear}
+            className="flex items-center gap-2 text-rose-600 hover:text-rose-700 font-bold text-sm bg-rose-50 px-4 py-2 rounded-xl transition-colors border border-rose-100"
+          >
+            <Trash2 size={16} />
+            Clear Log
+          </button>
+        )}
+      </header>
+
+      {/* Search Bar */}
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+        <input 
+          type="text" 
+          placeholder="Search by student, subject, or date (YYYY-MM-DD)..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-11 pr-10 py-3 bg-white border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm font-medium text-slate-700"
+        />
+        {searchTerm && (
+          <button 
+            onClick={() => setSearchTerm('')}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={18} />
+          </button>
+        )}
+      </div>
+
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        {filteredHistory.length === 0 ? (
+          <div className="p-20 text-center space-y-4">
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                {searchTerm ? <Search size={40} /> : <HistoryIcon size={40} />}
+            </div>
+            <p className="text-slate-400 font-medium">
+              {searchTerm ? `No records found matching "${searchTerm}"` : "No corrections recorded yet."}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto excel-scroll">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Timestamp</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Student</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Subject & Date</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Correction</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Modified By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredHistory.map((record) => (
+                  <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Clock size={14} />
+                        <span className="text-sm font-medium">{formatDate(record.timestamp)}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 text-sm">{record.studentName}</span>
+                        <span className="text-[10px] text-slate-400">ID: {record.studentId}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-600 text-[11px] uppercase tracking-wide">
+                            <FileText size={12} />
+                            {record.subjectName}
+                        </div>
+                        <span className="text-xs text-slate-500 font-medium">{record.dateOfAttendance}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        {getStatusBadge(record.previousStatus)}
+                        <ArrowRight size={14} className="text-slate-300" />
+                        {getStatusBadge(record.newStatus)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                          <User size={14} />
+                        </div>
+                        <span className="text-sm font-bold">{record.changedBy}</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      
+      <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3 items-start">
+        <Info className="text-amber-600 shrink-0 mt-0.5" size={18} />
+        <p className="text-xs text-amber-800 leading-relaxed">
+          The <strong>Correction History</strong> provides transparency and accountability for any changes made to attendance registers after initial entry. Every manual cell update or Quick Mark override is automatically logged here.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default HistoryLog;

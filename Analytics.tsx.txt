@@ -1,0 +1,207 @@
+
+import React, { useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { TrendingUp, AlertTriangle, CheckCircle2, Sparkles, BrainCircuit, Loader2, FileText, Copy, Check } from 'lucide-react';
+import { Student, AttendanceRecord, Subject } from '../types';
+import { aiService } from '../services/ai';
+
+interface AnalyticsProps {
+  students: Student[];
+  attendance: AttendanceRecord[];
+  subjects: Subject[];
+}
+
+const Analytics: React.FC<AnalyticsProps> = ({ students, attendance, subjects }) => {
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const subjectStats = subjects.map(subject => {
+    const subjectAttendance = attendance.filter(a => a.subjectId === subject.id);
+    const totalP = subjectAttendance.filter(a => a.status === 'P').length;
+    const total = subjectAttendance.length;
+    const percentage = total > 0 ? Math.round((totalP / total) * 100) : 0;
+    
+    return {
+      name: subject.name,
+      percentage,
+      count: total
+    };
+  }).filter(s => s.count > 0);
+
+  const lowAttendanceStudents = students.map(student => {
+    const studentAttendance = attendance.filter(a => a.studentId === student.id);
+    const totalP = studentAttendance.filter(a => a.status === 'P').length;
+    const total = studentAttendance.length;
+    const percentage = total > 0 ? Math.round((totalP / total) * 100) : 0;
+    
+    return {
+      name: student.name,
+      roll: student.rollNumber,
+      percentage,
+      total
+    };
+  }).filter(s => s.total > 0 && s.percentage < 75);
+
+  const handleGenerateReport = async () => {
+    setIsGenerating(true);
+    const report = await aiService.generateMonthlyReport(subjectStats, lowAttendanceStudents);
+    setAiReport(report);
+    setIsGenerating(false);
+  };
+
+  const copyReport = () => {
+    if (aiReport) {
+      navigator.clipboard.writeText(aiReport);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+  return (
+    <div className="space-y-8 pb-12 animate-in fade-in duration-500">
+      <header>
+        <h2 className="text-3xl font-extrabold text-slate-800">Academic Analytics</h2>
+        <p className="text-slate-500">Comprehensive attendance reporting and AI-powered performance tracking.</p>
+      </header>
+
+      {/* AI Report Generator */}
+      <div className="bg-gradient-to-r from-indigo-600 to-violet-700 rounded-3xl p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
+        <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
+          <BrainCircuit size={200} />
+        </div>
+        <div className="relative z-10">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <Sparkles className="text-indigo-200 animate-pulse" />
+                <h3 className="text-2xl font-black uppercase tracking-tight">Smart AI Summary</h3>
+              </div>
+              <p className="text-indigo-100 font-medium max-w-xl">
+                Let Gemini analyze all class registers and generate a formal monthly report for the administration.
+              </p>
+            </div>
+            <button 
+              onClick={handleGenerateReport}
+              disabled={isGenerating || subjectStats.length === 0}
+              className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black flex items-center justify-center gap-3 shadow-lg hover:bg-indigo-50 transition-all disabled:opacity-50 active:scale-95"
+            >
+              {isGenerating ? <Loader2 className="animate-spin" /> : <FileText size={20} />}
+              {aiReport ? 'Regenerate Report' : 'Generate Formal Report'}
+            </button>
+          </div>
+
+          {aiReport && (
+            <div className="mt-8 bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 animate-in slide-in-from-top-4">
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/10">
+                <span className="text-xs font-black uppercase tracking-widest text-indigo-200">Official AI Assessment</span>
+                <button onClick={copyReport} className="flex items-center gap-2 text-xs font-bold hover:text-white transition-colors">
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? 'Copied' : 'Copy Text'}
+                </button>
+              </div>
+              <div className="text-sm leading-relaxed whitespace-pre-line font-medium text-white/90">
+                {aiReport}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-bold text-slate-800">Subject Performance</h3>
+            <TrendingUp className="text-indigo-500" />
+          </div>
+          <div className="h-[300px] w-full">
+            {subjectStats.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={subjectStats}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" hide />
+                  <YAxis domain={[0, 100]} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  />
+                  <Bar dataKey="percentage" radius={[4, 4, 0, 0]}>
+                    {subjectStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400 italic">
+                No attendance data available yet
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold text-slate-800">Attendance Shortage</h3>
+            <AlertTriangle className="text-rose-500" />
+          </div>
+          <div className="flex-1 overflow-y-auto max-h-[300px] space-y-4 pr-2 excel-scroll">
+            {lowAttendanceStudents.length > 0 ? (
+              lowAttendanceStudents.sort((a, b) => a.percentage - b.percentage).map((s, idx) => (
+                <div key={idx} className="flex items-center justify-between p-4 bg-rose-50 rounded-2xl border border-rose-100">
+                  <div>
+                    <p className="font-bold text-slate-800">{s.name}</p>
+                    <p className="text-xs font-medium text-slate-500">Roll: {s.roll}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black text-rose-600">{s.percentage}%</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+                <CheckCircle2 className="text-emerald-500 mb-2" size={32} />
+                <p>All students satisfy the 75% attendance threshold.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-slate-100">
+          <h3 className="text-xl font-bold text-slate-800">Detailed Subject Report</h3>
+        </div>
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <tr>
+              <th className="px-6 py-4">Subject</th>
+              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Avg. Attendance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {subjectStats.map((s, idx) => (
+              <tr key={idx} className="hover:bg-slate-50/50">
+                <td className="px-6 py-4 font-bold text-slate-700">{s.name}</td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                    s.percentage >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                    s.percentage >= 60 ? 'bg-amber-100 text-amber-700' :
+                    'bg-rose-100 text-rose-700'
+                  }`}>
+                    {s.percentage >= 80 ? 'Healthy' : s.percentage >= 60 ? 'Warning' : 'Critical'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 font-bold text-slate-700">{s.percentage}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default Analytics;
